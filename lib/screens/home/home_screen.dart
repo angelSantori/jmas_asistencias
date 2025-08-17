@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'package:flutter/material.dart';
 import 'package:jmas_asistencias/configs/controllers/asistencia_controller.dart';
@@ -10,7 +9,6 @@ import 'package:jmas_asistencias/configs/models/asistencia_model.dart';
 import 'package:jmas_asistencias/configs/models/users_model.dart';
 import 'package:intl/intl.dart';
 import 'package:jmas_asistencias/screens/home/widgets/faceDetectionService.dart';
-import 'package:jmas_asistencias/screens/home/widgets/facePointsPainter.dart';
 import 'package:local_auth/local_auth.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -32,13 +30,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Users? _selectedUser;
   // ignore: unused_field
   bool _supportsBiometrics = false;
+  // ignore: unused_field
   List<img.Point>? _facialPoints;
+  // ignore: unused_field
   img.Image? _capturedImage;
   bool _isCapturing = false;
   int _captureCount = 0;
   bool _showWelcomeDialog = false;
   String? _welcomeUserName;
   String? _randomGifPath;
+  Users? _currentUser;
 
   @override
   void initState() {
@@ -73,11 +74,6 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       print('Error checking biometrics: $e');
     }
-  }
-
-  Future<Uint8List> _convertImageToDisplayFormat(img.Image image) async {
-    final pngBytes = img.encodePng(image);
-    return Uint8List.fromList(pngBytes);
   }
 
   Future<void> _loadUsers() async {
@@ -159,6 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final success = await _asistenciaController.addAsistencia(asistencia);
 
       if (success) {
+        setState(() {
+          _currentUser = matchedUser;
+        });
         _showWelcomeDialogEmergente(matchedUser.user_Name ?? 'Usuario');
         _showSnackBar(
           'Asistencia registrada para ${matchedUser.user_Name}. Similitud: ${(highestSimilarity * 100).toStringAsFixed(1)}%',
@@ -333,9 +332,19 @@ class _HomeScreenState extends State<HomeScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _logout() {
+    setState(() {
+      _currentUser = null;
+      _selectedUser = null;
+      _attendanceFaceImageBase64 = null;
+    });
+    _showSnackBar('Sesión cerrada');
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+    final isAdmin = _currentUser?.user_Rol == 'Admin';
 
     return Scaffold(
       body: Stack(
@@ -398,61 +407,82 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      DropdownButtonFormField<Users>(
-                        value: _selectedUser,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                        ),
-                        hint: const Text('Seleccione un usuario'),
-                        items: _usersList.map((user) {
-                          return DropdownMenuItem<Users>(
-                            value: user,
-                            child: Text(user.user_Name ?? 'Usuario sin nombre'),
-                          );
-                        }).toList(),
-                        onChanged: (Users? user) {
-                          setState(() {
-                            _selectedUser = user;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: 200,
-                        child: ElevatedButton(
-                          onPressed: _registerUserBiometrics,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: Colors.blue.shade900,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
+                      if (isAdmin) ...[
+                        DropdownButtonFormField<Users>(
+                          value: _selectedUser,
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
                             ),
-                            elevation: 0,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
                           ),
-                          child: const Text('Registrar Datos'),
+                          hint: const Text('Seleccione un usuario'),
+                          items: _usersList.map((user) {
+                            return DropdownMenuItem<Users>(
+                              value: user,
+                              child: Text(
+                                user.user_Name ?? 'Usuario sin nombre',
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (Users? user) {
+                            setState(() {
+                              _selectedUser = user;
+                            });
+                          },
                         ),
-                      ),
-                      if (_isCapturing)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 20),
-                          child: Column(
-                            children: [
-                              Text('Capturando imagen $_captureCount/3'),
-                              const SizedBox(height: 10),
-                              const CircularProgressIndicator(),
-                            ],
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: 200,
+                          child: ElevatedButton(
+                            onPressed: _registerUserBiometrics,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: Colors.blue.shade900,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: const Text('Registrar Datos'),
                           ),
                         ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: 200,
+                          child: ElevatedButton(
+                            onPressed: _logout,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: const Text('Cerrar Sesión'),
+                          ),
+                        ),
+                        if (_isCapturing)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 20),
+                            child: Column(
+                              children: [
+                                Text('Capturando imagen $_captureCount/3'),
+                                const SizedBox(height: 10),
+                                const CircularProgressIndicator(),
+                              ],
+                            ),
+                          ),
+                      ],
                       if (_isLoading)
                         const Padding(
                           padding: EdgeInsets.only(top: 20),
