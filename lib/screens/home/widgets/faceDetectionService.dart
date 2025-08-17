@@ -241,15 +241,17 @@ class FaceDetectionService {
     }
   }
 
-  Future<Map<String, String>?> getFaceData({int captureCount = 3}) async {
+  Future<Map<String, String>?> getFaceData({int captureCount = 1}) async {
     try {
       List<String> faceprints = [];
       String? imageBase64;
+      String? imagePath;
 
       for (int i = 0; i < captureCount; i++) {
         final imageFile = await pickImage();
         if (imageFile == null) continue;
 
+        imagePath = imageFile.path;
         final hasFace = await detectFaces(imageFile);
         if (!hasFace) continue;
 
@@ -264,10 +266,10 @@ class FaceDetectionService {
 
       if (faceprints.isEmpty) return null;
 
-      // Average the faceprints or use the best one
       return {
         'image': imageBase64 ?? '',
-        'faceprint': faceprints.first, // Or implement averaging logic
+        'faceprint': faceprints.first,
+        'imagePath': imagePath ?? '',
       };
     } catch (e) {
       print('Error in getFaceData: $e');

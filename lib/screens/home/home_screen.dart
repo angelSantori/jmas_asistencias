@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'package:flutter/material.dart';
@@ -32,6 +33,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _supportsBiometrics = false;
   List<img.Point>? _facialPoints;
   img.Image? _capturedImage;
+  bool _isCapturing = false;
+  int _captureCount = 0;
 
   @override
   void initState() {
@@ -154,23 +157,76 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _isCapturing = true;
+      _captureCount = 0;
+    });
 
+    // Iniciar proceso de captura automática
+    _startAutoCapture();
+  }
+
+  Future<void> _startAutoCapture() async {
     try {
-      final faceData = await _faceService.getFaceData();
-      if (faceData == null || faceData['image'] == null) {
-        _showSnackBar('No se detectó un rostro válido');
+      final List<String> faceprints = [];
+      String? imageBase64;
+
+      // Capturar 3 imágenes automáticamente
+      for (int i = 0; i < 3; i++) {
+        if (!_isCapturing) break; // Permitir cancelación
+
+        setState(() => _captureCount = i + 1);
+
+        final faceData = await _faceService.getFaceData(captureCount: 1);
+        await Future.delayed(
+          const Duration(seconds: 1),
+        ); // Intervalo entre capturas
+
+        if (faceData != null &&
+            faceData['faceprint'] != null &&
+            faceData['image'] != null) {
+          faceprints.add(faceData['faceprint']!);
+          imageBase64 = faceData['image'];
+
+          // Obtener datos para vista previa
+          final imagePath = faceData['imagePath'];
+          if (imagePath != null) {
+            final facialPoints = await _faceService.getFacialPoints(
+              File(imagePath),
+            );
+            final capturedImage = await _faceService.getImageFromBase64(
+              faceData['image']!,
+            );
+
+            // Actualizar UI
+            setState(() {
+              _facialPoints = facialPoints;
+              _capturedImage = capturedImage;
+            });
+          }
+        }
+      }
+
+      if (faceprints.isEmpty) {
+        _showSnackBar('No se detectaron rostros válidos');
         return;
       }
 
+      if (_selectedUser == null || imageBase64 == null) {
+        _showSnackBar('Error en los datos del usuario');
+        return;
+      }
+
+      // Procesar los datos capturados
       final updatedUser = Users(
         id_User: _selectedUser!.id_User,
         user_Name: _selectedUser!.user_Name,
         user_Contacto: _selectedUser!.user_Contacto,
         user_Access: _selectedUser!.user_Access,
         user_Password: _selectedUser!.user_Password,
-        user_Rostro64: faceData['image'],
-        user_HuellaFacial: faceData['faceprint'],
+        user_Rostro64: imageBase64,
+        user_HuellaFacial: faceprints.first,
         user_Rol: _selectedUser!.user_Rol,
         idRole: _selectedUser!.idRole,
       );
@@ -182,42 +238,68 @@ class _HomeScreenState extends State<HomeScreen> {
           'Datos biométricos registrados exitosamente para ${_selectedUser!.user_Name}',
         );
         setState(() {
-          _usersList.clear;
+          _usersList.clear();
           _selectedUser = null;
-          _loadUsers();
         });
+        await _loadUsers();
       } else {
         _showSnackBar('Error al guardar datos biométricos');
       }
     } catch (e) {
       _showSnackBar('Error: $e');
     } finally {
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _isCapturing = false;
+      });
     }
   }
 
   Future<void> _captureAttendanceFace() async {
-    setState(() => _isLoading = true);
-    final faceData = await _faceService.getFaceData();
+    setState(() {
+      _isLoading = true;
+      _isCapturing = true;
+      _captureCount = 0;
+    });
 
-    if (faceData == null || faceData['faceprint'] == null) {
-      _showSnackBar('No se detectó un rostro válido');
-    } else {
-      _attendanceFaceImageBase64 = faceData['faceprint'];
+    try {
+      final faceData = await _faceService.getFaceData(captureCount: 1);
 
-      // Get facial points for visualization
-      final imageFile = await _faceService.pickImage();
-      if (imageFile != null) {
-        _facialPoints = await _faceService.getFacialPoints(imageFile);
-        final bytes = await imageFile.readAsBytes();
-        _capturedImage = await _faceService.getImageFromBase64(
-          base64Encode(bytes),
-        );
+      if (faceData == null ||
+          faceData['faceprint'] == null ||
+          faceData['image'] == null) {
+        _showSnackBar('No se detectó un rostro válido');
+        return;
       }
 
-      _registerAttendance();
+      _attendanceFaceImageBase64 = faceData['faceprint'];
+
+      // Mostrar puntos faciales
+      final imagePath = faceData['imagePath'];
+      if (imagePath != null) {
+        final facialPoints = await _faceService.getFacialPoints(
+          File(imagePath),
+        );
+        final bytes = await File(imagePath).readAsBytes();
+        final capturedImage = await _faceService.getImageFromBase64(
+          base64Encode(bytes),
+        );
+
+        setState(() {
+          _facialPoints = facialPoints;
+          _capturedImage = capturedImage;
+        });
+      }
+
+      await _registerAttendance();
+    } catch (e) {
+      _showSnackBar('Error: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+        _isCapturing = false;
+      });
     }
-    setState(() => _isLoading = false);
   }
 
   void _showSnackBar(String message) {
@@ -265,7 +347,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         elevation: 0,
                       ),
-                      child: const Text('Registrar Asistencia Facial'),
+                      child: const Text('Registrar Asistencia'),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -313,6 +395,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: const Text('Registrar Datos'),
                     ),
                   ),
+                  if (_isCapturing)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 20),
+                      child: Column(
+                        children: [
+                          Text('Capturando imagen $_captureCount/3'),
+                          const SizedBox(height: 10),
+                          const CircularProgressIndicator(),
+                        ],
+                      ),
+                    ),
                   if (_capturedImage != null && _facialPoints != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 20),
