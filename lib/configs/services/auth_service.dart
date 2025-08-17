@@ -100,6 +100,8 @@ class AuthService {
         return user!.role!.canManageRoles ?? false;
       case 'evaluar':
         return user!.role!.canEvaluar ?? false;
+      case 'ccontable':
+        return user!.role!.canCContables ?? false;
       default:
         return false;
     }
@@ -110,6 +112,7 @@ class AuthService {
   Future<bool> canEdit() => hasPermission('edit');
   Future<bool> canDelete() => hasPermission('delete');
   Future<bool> canEvaluar() => hasPermission('evaluar');
+  Future<bool> canCContable() => hasPermission('ccontable');
   Future<bool> canManageUsers() => hasPermission('manage_users');
   Future<bool> canManageRoles() => hasPermission('manage_roles');
 
